@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desenho com Mão v8 (Interação Dupla e Suavização)</title>
+
+    <!-- 
+      Dependências via CDN. 
+      Este app não funcionará offline, pois precisa carregar estes scripts.
+    --><!-- 1. Tailwind CSS para a UI moderna --><script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- 2. TensorFlow.js Core, Converter, e Backend WebGL --><script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.20.0/dist/tf-core.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.20.0/dist/tf-converter.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.20.0/dist/tf-backend-webgl.min.js"></script>
+
+    <!-- 3. MediaPipe Hands (dependência) e o modelo Hand Pose Detection --><script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection@2.0.1/dist/hand-pose-detection.min.js"></script>
+
+    <style>
+        /* CSS mínimo para customizações que o Tailwind não cobre facilmente */
+        body, html {
+            overflow: hidden; /* Impede o scroll da página */
+            font-family: 'Inter', sans-serif; /* Fonte mais moderna */
+        }
+        
+        /* Aplica a fonte Inter (Tailwind não faz isso por padrão sem config) */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+        }
+
+        /* Esconde os spinners de input[type=number] */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        
+        /* Estilização customizada do slider (range) */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #4a5568; /* bg-gray-700 */
+            border-radius: 99px;
+            outline: none;
+            opacity: 0.9;
+            transition: opacity .2s;
+        }
+        input[type=range]:hover {
+            opacity: 1;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* bg-blue-500 */
+            border-radius: 50%;
+            border: 2px solid #e2e8f0; /* bg-gray-200 */
+            cursor: pointer;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #3b82f6;
+            border-radius: 50%;
+            border: 2px solid #e2e8f0;
+            cursor: pointer;
+        }
+
+        /* Estilização customizada do color picker */
+        input[type="color"] {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 48px;
+            height: 48px;
+            padding: 0;
+            border: 2px solid #4a5568; /* bg-gray-700 */
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        input[type="color"]::hover {
+            transform: scale(1.05);
+        }
+        input[type="color"]:active {
+            transform: scale(0.95);
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+            border-radius: 50%;
+        }
+        input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 50%;
+        }
+
+        /* Cursor Virtual para a Mão do Menu */
+        #virtualCursor {
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* bg-blue-500 */
+            border: 2px solid white;
+            border-radius: 50%;
+            /* Evita que o cursor bloqueie os eventos de clique */
+            pointer-events: none; 
+            /* Centraliza o cursor no ponto do dedo */
+            transform: translate(-50%, -50%);
+            /* ATUALIZADO: Transição mais rápida para responsividade */
+            transition: transform 0.05s ease-out, background-color 0.1s;
+            /* Z-index ALTO para ficar sobre o menu */
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans">
+
+    <!-- Container principal que empilha vídeo e canvas --><main class="relative w-screen h-screen overflow-hidden">
+        <!-- Vídeo: Mostra a câmera (espelhado) --><video id="video" playsinline autoplay muted class="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 transform scale-x-[-1] object-cover transition-opacity duration-300"></video>
+        
+        <!-- Canvas: Onde o desenho acontece (não espelhado) --><canvas id="canvas" class="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 transform object-cover"></canvas>
+    </main>
+
+    <!-- Overlay para o menu modal (z-30) --><div id="menu-overlay" class="hidden absolute inset-0 z-30 bg-black bg-opacity-50 backdrop-blur-sm"></div>
+
+    <!-- Cursor Virtual (z-1000) --><div id="virtualCursor" class="hidden absolute"></div>
+
+    <!-- Botão flutuante para Iniciar Câmera (z-30) --><button id="btnStartCam" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-blue-600 text-white px-8 py-4 rounded-full shadow-lg text-lg font-semibold hover:bg-blue-700 active:scale-95 transition-all">
+        ▶️ Iniciar Câmera
+    </button>
+
+    <!-- Botão flutuante para Abrir Configurações (z-30) - Agora é um placeholder, o menu abre com gesto --><!-- Mantido oculto, apenas para fins de debug se precisar --><button id="btnToggleSettings" class="absolute top-4 right-4 z-30 bg-gray-800 bg-opacity-70 backdrop-blur-sm p-3 rounded-full shadow-lg hover:bg-gray-700 active:scale-95 transition-all hidden">
+        <!-- Ícone de Engrenagem (SVG) --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l-.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+
+    <!-- Menu de Configurações (Modal Centralizado) (z-40) --><div id="settings-menu" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 w-[90vw] max-w-md bg-gray-800 bg-opacity-90 backdrop-blur-md shadow-2xl p-6 rounded-2xl flex-col max-h-[90vh] overflow-y-auto">
+        <!-- Cabeçalho do Menu --><div class="flex justify-between items-center mb-6 flex-shrink-0">
+            <h2 class="text-xl font-semibold">Ferramentas</h2>
+            <!-- Botão de fechar removido, o menu fecha com a mão --></div>
+
+        <!-- Seção de Ferramentas --><div class="mb-6">
+            <h3 class="text-sm font-medium text-gray-400 mb-2">Ferramenta Ativa</h3>
+            <div class="grid grid-cols-2 gap-4">
+                <button id="btnPincel" class="tool-button bg-blue-600 text-white p-4 rounded-lg flex flex-col items-center justify-center gap-2 transition-all">
+                    <!-- Ícone de Pincel --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    <span>Pincel</span>
+                </button>
+                <button id="btnBorracha" class="tool-button bg-gray-700 text-gray-300 p-4 rounded-lg flex flex-col items-center justify-center gap-2 transition-all hover:bg-gray-600">
+                    <!-- Ícone de Borracha --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21H7Z"/><path d="M18 11.6 12.4 6"/><path d="m11 13 2.8 2.8"/></svg>
+                    <span>Borracha</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Seção de Cor e Traço --><div class="mb-6 grid grid-cols-2 gap-4 items-center">
+            <div>
+                <h3 class="text-sm font-medium text-gray-400 mb-2 text-center">Cor</h3>
+                <div class="flex justify-center">
+                    <!-- COR PADRÃO ALTERADA PARA PRETO --><input type="color" id="colorPicker" value="#000000" title="Cor do Pincel">
+                </div>
+            </div>
+            <div class="flex-grow">
+                <h3 class="text-sm font-medium text-gray-400 mb-2">Espessura</h3>
+                <input type="range" id="lineWidth" min="1" max="48" value="8" step="1" title="Espessura do Pincel">
+                <span id="lineWidthLabel" class="text-center block text-sm text-gray-300 mt-2">8 px</span>
+            </div>
+        </div>
+        
+        <!-- Checkbox "Desenhar com Pinça" --><div class="mb-6">
+             <label class="flex items-center gap-3 p-3 bg-gray-700 rounded-lg">
+                 <input type="checkbox" id="chkPinchDraw" class="w-5 h-5 rounded text-blue-500 bg-gray-600 border-gray-500 focus:ring-blue-600" checked>
+                 <span class="text-sm">Desenhar apenas com Pinça</span>
+             </label>
+        </div>
+
+        <!-- Seção de Ações --><div class="mb-6 grid grid-cols-2 gap-4">
+            <button id="btnClear" class="bg-red-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-red-700 active:scale-95 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                Limpar
+            </button>
+            <button id="btnSave" class="bg-green-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 active:scale-95 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Salvar
+            </button>
+        </div>
+        
+        <!-- Seção de Controles da Câmera --><div class="border-t border-gray-700 pt-6 grid grid-cols-2 gap-4">
+             <button id="btnToggleVideo" class="bg-gray-700 text-gray-300 p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-600 active:scale-95 transition-all">
+                 <svg id="iconVideoOn" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.934a.5.5 0 0 0-.777-.416L16 11Z"/><rect x="2" y="7" width="14" height="10" rx="2" ry="2"/></svg>
+                 <svg id="iconVideoOff" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M16 13.01V7.934a.5.5 0 0 0-.777-.416L10.5 10.5H2v4h8.5l4.723 3.066a.5.5 0 0 0 .777-.416Z"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+                 Vídeo
+             </button>
+             <button id="btnSwitchCam" class="bg-gray-700 text-gray-300 p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-600 active:scale-95 transition-all">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M21 22v-6h-6"/><path d="M21 13a9 9 0 0 0-9-9 9 9 0 0 0-9 9"/><path d="M3 11a9 9 0 0 0 9 9 9 9 0 0 0 9-9"/></svg>
+                 Alternar
+             </button>
+        </div>
+    </div>
+
+    <!-- HUD de Status (z-20) --><footer class="status-hud absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-3 pointer-events-none hidden">
+        <div id="status" class="badge bg-blue-600 bg-opacity-80 text-white px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm">
+            Status: Ocioso
+        </div>
+        <div id="fps" class="badge bg-gray-800 bg-opacity-70 text-gray-200 px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm">
+            FPS: --
+        </div>
+    </footer>
+
+
+    <!-- Lógica principal do aplicativo --><script type="module">
+        // --- Referências aos Elementos DOM ---
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+        const fpsEl = document.getElementById('fps');
+        const virtualCursor = document.getElementById('virtualCursor');
+        const menuOverlay = document.getElementById('menu-overlay');
+        
+        // Controles Principais
+        const btnStartCam = document.getElementById('btnStartCam');
+        // const btnToggleSettings = document.getElementById('btnToggleSettings'); // Mantido oculto
+        const settingsMenu = document.getElementById('settings-menu');
+        
+        // Controles do Menu
+        // const btnCloseSettings = document.getElementById('btnCloseSettings'); // Removido, fecha com gesto
+        const btnPincel = document.getElementById('btnPincel');
+        const btnBorracha = document.getElementById('btnBorracha');
+        const colorPicker = document.getElementById('colorPicker');
+        const lineWidth = document.getElementById('lineWidth');
+        const lineWidthLabel = document.getElementById('lineWidthLabel');
+        const chkPinchDraw = document.getElementById('chkPinchDraw');
+        const btnClear = document.getElementById('btnClear');
+        const btnSave = document.getElementById('btnSave');
+        const btnToggleVideo = document.getElementById('btnToggleVideo');
+        const btnSwitchCam = document.getElementById('btnSwitchCam');
+        const iconVideoOn = document.getElementById('iconVideoOn');
+        const iconVideoOff = document.getElementById('iconVideoOff');
+
+        // --- Variáveis de Estado ---
+        let detector;
+        let videoStream;
+        let currentFacingMode = 'user';
+        let loopHandle = null;
+        
+        // Estado da Mão de Desenho (Primária)
+        let isDrawing = false;
+        let isDrawingPinchingState = false;
+        let lastDrawCursor = null; 
+        let currentTool = 'draw'; 
+        
+        // ATUALIZADO V8: Lógica de suavização de curva
+        let lastDrawnPoint = null;
+
+        // Estado da Mão de Menu/Ponteiro
+        let isSettingsMenuOpen = false;
+        let isMenuPinchingState = false; // Estado de "clique/segurar" (agora da MÃO DE AÇÃO)
+        let lastMenuCursor = null; // Posição do cursor (MÃO DO PONTEIRO)
+        let currentMenuCursorPos = null; // Posição (x,y) do cursor para a mão de ação usar
+        let currentHoveredElement = null; // Elemento sob o cursor
+        let isDraggingSlider = false; // Se o slider está sendo arrastado
+        
+        // Constantes de Detecção
+        const PINCH_START_THRESHOLD = 0.22; // Pinça fechada
+        const PINCH_STOP_THRESHOLD = 0.28;  // Pinça aberta
+        
+        // Fatores de suavização
+        const SMOOTH_FACTOR = 0.8; // Fator de suavização para o desenho
+        const MENU_SMOOTH_FACTOR = 0.85; // Fator de suavização para o cursor do menu
+
+        // Estado do FPS
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        
+        // Estado de Inicialização
+        let isModelReady = false;
+        let isVideoReady = false;
+
+        // --- Funções de UI ---
+
+        /**
+         * Atualiza o badge de status.
+         */
+        function showStatus(message, type = 'info') {
+            statusEl.textContent = `Status: ${message}`;
+            statusEl.className = 'badge text-white px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm';
+            switch (type) {
+                case 'ok': statusEl.classList.add('bg-green-600', 'bg-opacity-80'); break;
+                case 'warn': statusEl.classList.add('bg-yellow-500', 'bg-opacity-80'); break;
+                case 'error': statusEl.classList.add('bg-red-600', 'bg-opacity-80'); break;
+                default: statusEl.classList.add('bg-blue-600', 'bg-opacity-80'); break;
+            }
+        }
+
+        /**
+         * Alterna a visibilidade do menu de configurações.
+         */
+        function toggleSettingsMenu(forceShow = null) {
+            const shouldOpen = forceShow !== null ? forceShow : !isSettingsMenuOpen;
+            
+            if (shouldOpen) {
+                if (isSettingsMenuOpen) return; // Já está aberto
+                menuOverlay.classList.remove('hidden'); 
+                settingsMenu.classList.remove('hidden'); 
+                settingsMenu.classList.add('flex'); 
+                isSettingsMenuOpen = true;
+            } else {
+                if (!isSettingsMenuOpen) return; // Já está fechado
+                menuOverlay.classList.add('hidden'); 
+                settingsMenu.classList.add('hidden'); 
+                settingsMenu.classList.remove('flex'); 
+                isSettingsMenuOpen = false;
+                virtualCursor.classList.add('hidden'); // Garante que o cursor suma ao fechar
+                isDraggingSlider = false; // Reseta o estado de arrastar slider
+            }
+        }
+
+        /**
+         * Define a ferramenta ativa (Pincel ou Borracha).
+         */
+        function setTool(tool) {
+            currentTool = tool;
+            
+            const buttons = document.querySelectorAll('.tool-button');
+            buttons.forEach(btn => btn.classList.add('bg-gray-700', 'text-gray-300', 'hover:bg-gray-600'));
+            buttons.forEach(btn => btn.classList.remove('bg-blue-600', 'text-white'));
+
+            if (tool === 'draw') {
+                btnPincel.classList.add('bg-blue-600', 'text-white');
+                btnPincel.classList.remove('bg-gray-700', 'text-gray-300', 'hover:bg-gray-600');
+            } else if (tool === 'erase') {
+                btnBorracha.classList.add('bg-blue-600', 'text-white');
+                btnBorracha.classList.remove('bg-gray-700', 'text-gray-300', 'hover:bg-gray-600');
+            }
+        }
+        
+        /**
+         * Calcula a distância 2D entre dois pontos {x, y}.
+         */
+        function distance(p1, p2) {
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        /**
+         * Calcula a distância normalizada da pinça (polegar/indicador).
+         */
+        function getNormalizedPinchDist(landmarks) {
+            try {
+                const thumbTip = landmarks[4];
+                const indexTip = landmarks[8];
+                const wrist = landmarks[0];
+                const middleBase = landmarks[9];
+                
+                const pinchDist = distance(thumbTip, indexTip);
+                const scaleDist = distance(wrist, middleBase) || 1; // Evita divisão por zero
+                return pinchDist / scaleDist;
+            } catch (e) {
+                return 1.0; // Valor seguro (não-pinça) se houver erro
+            }
+        }
+
+        /**
+         * Converte coordenadas do modelo (vídeo) para coordenadas da TELA (viewport).
+         */
+        function getVideoToScreenCoords(point) {
+            const videoRect = video.getBoundingClientRect();
+            
+            const x_ratio = videoRect.width / video.videoWidth;
+            const y_ratio = videoRect.height / video.videoHeight;
+
+            const screenX = videoRect.left + (video.videoWidth - point.x) * x_ratio;
+            const screenY = videoRect.top + point.y * y_ratio;
+
+            return { x: screenX, y: screenY };
+        }
+
+        /**
+         * Converte coordenadas do modelo para o canvas (espelhado).
+         */
+        function getMirroredCoords(point) {
+            const canvasX = canvas.width - point.x;
+            const canvasY = point.y;
+            return { x: canvasX, y: canvasY };
+        }
+        
+        /**
+         * Suaviza o movimento do cursor de DESENHO.
+         */
+        function getSmoothedCursor(indexTip) {
+            const targetCursor = getMirroredCoords(indexTip);
+
+            if (!lastDrawCursor) {
+                lastDrawCursor = targetCursor;
+                return targetCursor;
+            }
+
+            const smoothedX = SMOOTH_FACTOR * targetCursor.x + (1 - SMOOTH_FACTOR) * lastDrawCursor.x;
+            const smoothedY = SMOOTH_FACTOR * targetCursor.y + (1 - SMOOTH_FACTOR) * lastDrawCursor.y;
+            
+            lastDrawCursor = { x: smoothedX, y: smoothedY };
+            return lastDrawCursor;
+        }
+
+        /**
+         * Suaviza o movimento do cursor do PONTEIRO (no modo menu).
+         */
+        function smoothMenu(targetCursor) {
+            if (!lastMenuCursor) {
+                lastMenuCursor = targetCursor;
+                return targetCursor;
+            }
+
+            const smoothedX = MENU_SMOOTH_FACTOR * targetCursor.x + (1 - MENU_SMOOTH_FACTOR) * lastMenuCursor.x;
+            const smoothedY = MENU_SMOOTH_FACTOR * targetCursor.y + (1 - MENU_SMOOTH_FACTOR) * lastMenuCursor.y;
+            lastMenuCursor = { x: smoothedX, y: smoothedY };
+            return lastMenuCursor;
+        }
+        
+        /**
+         * Inicia o loop de predição.
+         */
+        function startPredictionLoop() {
+            if (loopHandle) return; // Já está rodando
+            
+            if (!isVideoReady || !isModelReady) {
+                console.warn("Loop iniciado antes de tudo estar pronto.");
+                return;
+            }
+            
+            showStatus('Detecção ativa', 'ok');
+            document.body.style.cursor = 'none'; // Esconde o cursor
+            
+            // Reseta estados
+            isDrawing = false;
+            isDrawingPinchingState = false;
+            lastDrawCursor = null; 
+            lastDrawnPoint = null; 
+            lastMenuCursor = null;
+            currentMenuCursorPos = null;
+            isMenuPinchingState = false;
+            isDraggingSlider = false;
+            currentHoveredElement = null;
+            
+            document.querySelector('.status-hud').classList.remove('hidden');
+
+            frameCount = 0;
+            lastFpsTime = performance.now();
+            loopHandle = requestAnimationFrame(predictionLoop);
+        }
+
+        /**
+         * Para o loop de predição.
+         */
+        function stopPredictionLoop() {
+            if (loopHandle) {
+                cancelAnimationFrame(loopHandle);
+                loopHandle = null;
+            }
+            virtualCursor.classList.add('hidden');
+            document.body.style.cursor = 'default'; // Mostra o cursor
+            showStatus('Câmera parada', 'info');
+            toggleSettingsMenu(false); // Garante que o menu feche
+        }
+        
+        // --- Funções de Processamento de Gestos ---
+        
+        /**
+         * ATUALIZADO V8: Processa a mão primária (desenho) com curvas suaves.
+         */
+        function processDrawingHand(keypoints) {
+            if (!keypoints) {
+                 if (isDrawing) { // Se estava desenhando, limpa o estado
+                    isDrawing = false;
+                    lastDrawnPoint = null; 
+                    isDrawingPinchingState = false;
+                    ctx.closePath(); // Fecha qualquer path de curva aberto
+                 }
+                 return;
+            }
+            
+            const pinchDist = getNormalizedPinchDist(keypoints);
+            
+            // Histerese para a mão de desenho
+            if (isDrawingPinchingState && pinchDist > PINCH_STOP_THRESHOLD) {
+                isDrawingPinchingState = false;
+            } else if (!isDrawingPinchingState && pinchDist < PINCH_START_THRESHOLD) {
+                isDrawingPinchingState = true;
+            }
+
+            const shouldDraw = !chkPinchDraw.checked || isDrawingPinchingState;
+            const cursor = getSmoothedCursor(keypoints[8]); // Usa o keypoint 8 (indexTip) para o cursor
+
+            // Define o estilo ANTES de desenhar
+            if (currentTool === 'draw') {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.strokeStyle = colorPicker.value;
+                ctx.lineWidth = lineWidth.value;
+            } else if (currentTool === 'erase') {
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.lineWidth = lineWidth.value;
+            }
+
+            if (shouldDraw) {
+                if (!isDrawing) {
+                    // Início de uma nova linha
+                    isDrawing = true;
+                    lastDrawnPoint = cursor;
+                    ctx.beginPath();
+                    ctx.moveTo(cursor.x, cursor.y);
+                } else {
+                    // Continuação da linha com curva
+                    const midX = (lastDrawnPoint.x + cursor.x) / 2;
+                    const midY = (lastDrawnPoint.y + cursor.y) / 2;
+                    
+                    // Desenha a curva até o ponto médio
+                    ctx.quadraticCurveTo(lastDrawnPoint.x, lastDrawnPoint.y, midX, midY);
+                    
+                    // Começa o próximo segmento de curva
+                    ctx.stroke(); // Finaliza o segmento anterior
+                    ctx.beginPath(); // Inicia um novo
+                    ctx.moveTo(midX, midY); // Começa do ponto médio
+                    
+                    lastDrawnPoint = cursor; // Armazena o ponto de controle para o próximo frame
+                }
+            } else {
+                // "Caneta para cima"
+                if (isDrawing) {
+                    isDrawing = false;
+                    lastDrawnPoint = null;
+                    ctx.closePath(); // Fecha o path
+                }
+            }
+            
+            // Reseta o modo de composição
+            ctx.globalCompositeOperation = 'source-over';
+        }
+        
+        /**
+         * ATUALIZADO V8: Processa a mão secundária (esquerda) como PONTEIRO.
+         * Esta função AGORA SÓ MOVE O CURSOR.
+         */
+        function processPointerHand(keypoints) {
+            if (!keypoints) {
+                virtualCursor.classList.add('hidden');
+                currentMenuCursorPos = null;
+                currentHoveredElement = null;
+                return;
+            }
+
+            // 1. Mover cursor com o dedo indicador (landmark 8)
+            const cursorRaw = getVideoToScreenCoords(keypoints[8]); // Posição do indicador
+            const cursor = smoothMenu(cursorRaw);
+            
+            // 2. Mostrar o cursor
+            virtualCursor.classList.remove('hidden');
+            updateVirtualCursor(cursor);
+
+            // 3. Salva o estado para a MÃO DE AÇÃO usar
+            currentMenuCursorPos = cursor;
+            currentHoveredElement = document.elementFromPoint(cursor.x, cursor.y);
+        }
+
+        /**
+         * NOVO V8: Processa a mão primária (direita) como AÇÃO (clique/pinça).
+         * Esta função verifica a pinça e interage com os elementos
+         * que a MÃO DO PONTEIRO está sobre.
+         */
+        function processActionHand(keypoints) {
+            // Se o cursor não estiver visível (sem mão de ponteiro), não há ação
+            if (!currentMenuCursorPos) {
+                isMenuPinchingState = false;
+                isDraggingSlider = false;
+                return;
+            }
+
+            // Se não houver mão de ação, reseta o estado de pinça
+            if (!keypoints) {
+                if (isMenuPinchingState) { // Se estava pinçando e a mão sumiu
+                    isMenuPinchingState = false;
+                    isDraggingSlider = false;
+                    // Simula um "mouseup" para sliders se estava arrastando
+                    if (currentHoveredElement && currentHoveredElement.tagName === 'INPUT' && currentHoveredElement.type === 'range') {
+                         const event = new MouseEvent('mouseup', { clientX: currentMenuCursorPos.x, clientY: currentMenuCursorPos.y });
+                         currentHoveredElement.dispatchEvent(event);
+                    }
+                }
+                // Feedback visual (cursor normal)
+                virtualCursor.style.transform = 'translate(-50%, -50%) scale(1.0)';
+                virtualCursor.style.backgroundColor = '#3b82f6'; // Azul normal
+                return;
+            }
+
+            // Detectar "Clique" ou "Arrastar" com pinça
+            const pinchDist = getNormalizedPinchDist(keypoints);
+            let didClick = false;
+
+            // Histerese para clique/segurar
+            if (isMenuPinchingState && pinchDist > PINCH_STOP_THRESHOLD) {
+                // Soltou a pinça
+                isMenuPinchingState = false;
+                isDraggingSlider = false; 
+                // Simula um "mouseup"
+                if (currentHoveredElement && currentHoveredElement.tagName === 'INPUT' && currentHoveredElement.type === 'range') {
+                     const event = new MouseEvent('mouseup', { clientX: currentMenuCursorPos.x, clientY: currentMenuCursorPos.y });
+                     currentHoveredElement.dispatchEvent(event);
+                }
+            } else if (!isMenuPinchingState && pinchDist < PINCH_START_THRESHOLD) {
+                // Acabou de fechar a pinça
+                isMenuPinchingState = true;
+                didClick = true; 
+            }
+
+            // Feedback visual do cursor (baseado na MÃO DE AÇÃO)
+            if (isMenuPinchingState) {
+                virtualCursor.style.transform = 'translate(-50%, -50%) scale(0.8)';
+                virtualCursor.style.backgroundColor = '#2563eb'; // Azul mais escuro
+            } else {
+                virtualCursor.style.transform = 'translate(-50%, -50%) scale(1.0)';
+                virtualCursor.style.backgroundColor = '#3b82f6'; // Azul normal
+            }
+
+            // Interação: Clicar ou Arrastar
+            if (didClick) {
+                performClick(currentMenuCursorPos.x, currentMenuCursorPos.y);
+            } else if (isMenuPinchingState && isDraggingSlider) {
+                // Se a pinça está fechada E estamos arrastando um slider
+                if (currentHoveredElement && currentHoveredElement.tagName === 'INPUT' && currentHoveredElement.type === 'range') {
+                    // Simula um mousemove para arrastar o slider
+                    const event = new MouseEvent('mousemove', { clientX: currentMenuCursorPos.x, clientY: currentMenuCursorPos.y, bubbles: true, cancelable: true });
+                    currentHoveredElement.dispatchEvent(event);
+                    updateSliderValue(currentHoveredElement, currentMenuCursorPos.x);
+                }
+            }
+        }
+
+        /**
+         * Atualiza o valor de um slider com base na posição X do cursor.
+         */
+        function updateSliderValue(slider, cursorX) {
+            const rect = slider.getBoundingClientRect();
+            let clickX = cursorX - rect.left;
+            clickX = Math.max(0, Math.min(clickX, rect.width)); // Limita dentro do slider
+
+            const percent = clickX / rect.width;
+            const value = parseFloat(slider.min) + percent * (parseFloat(slider.max) - parseFloat(slider.min));
+            slider.value = value;
+            // Dispara evento de input para que a UI de label seja atualizada
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // --- Funções Principais da Câmera e Desenho ---
+
+        /**
+         * Verifica se o modelo e o vídeo estão prontos para iniciar o loop.
+         */
+        function checkAndStartLoop() {
+            if (isVideoReady && isModelReady) {
+                startPredictionLoop();
+            } else if (isVideoReady && !isModelReady) {
+                showStatus('Carregando modelo...', 'info');
+            } else if (!isVideoReady && isModelReady) {
+                showStatus('Aguardando câmera...', 'info');
+            }
+        }
+
+        /**
+         * Inicializa o detector de pose da mão.
+         */
+        async function initDetector() {
+            showStatus('Carregando modelo...', 'info');
+            try {
+                await tf.setBackend('webgl');
+                const model = handPoseDetection.SupportedModels.MediaPipeHands;
+                const detectorConfig = {
+                    runtime: 'mediapipe',
+                    solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240',
+                    modelType: 'lite', 
+                    maxHands: 2, // Continuamos a detectar 2 mãos
+                };
+                detector = await handPoseDetection.createDetector(model, detectorConfig);
+                isModelReady = true;
+                showStatus('Modelo carregado', 'ok');
+                checkAndStartLoop(); 
+            } catch (error) {
+                console.error("Erro ao inicializar o detector:", error);
+                showStatus('Erro no modelo', 'error');
+                isModelReady = false;
+            }
+        }
+        
+        /**
+         * Função chamada pelo clique no botão Iniciar.
+         */
+        async function onStartClick() {
+            btnStartCam.classList.add('hidden'); // Feedback imediato
+            document.body.style.cursor = 'none'; // Esconde cursor real
+            await startCamera(currentFacingMode);
+        }
+
+        /**
+         * Pede permissão e inicia a câmera.
+         */
+        async function startCamera(facingMode) {
+            showStatus('Iniciando câmera...', 'info');
+            
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+            }
+
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: facingMode,
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
+            } catch (error) {
+                console.error("Erro ao acessar a câmera:", error);
+                showStatus(error.name === "NotAllowedError" ? 'Permissão negada' : 'Erro na câmera', 'error');
+                document.body.style.cursor = 'default'; 
+                btnStartCam.classList.remove('hidden'); 
+                isVideoReady = false;
+                return;
+            }
+
+            video.srcObject = videoStream;
+            video.onloadedmetadata = () => {
+                video.play();
+                setupCanvas();
+                isVideoReady = true;
+                checkAndStartLoop(); 
+            };
+        }
+
+        /**
+         * Alterna entre a câmera frontal e traseira.
+         */
+        function switchCamera() {
+            currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+            showStatus('Trocando câmera...', 'info');
+            stopPredictionLoop();
+            isVideoReady = false; // Reseta o estado do vídeo
+            startCamera(currentFacingMode);
+        }
+
+        /**
+         * Alterna a visibilidade do vídeo (mostra/esconde).
+         */
+        function toggleVideo() {
+            const isHidden = video.style.opacity === '0';
+            video.style.opacity = isHidden ? '1' : '0';
+            iconVideoOn.classList.toggle('hidden', !isHidden);
+            iconVideoOff.classList.toggle('hidden', isHidden);
+        }
+
+        /**
+         * Ajusta o tamanho do canvas para corresponder ao vídeo.
+         */
+        function setupCanvas() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            // Configura o estilo inicial com a cor padrão (preto)
+            ctx.strokeStyle = colorPicker.value;
+            ctx.lineWidth = lineWidth.value;
+            ctx.lineCap = 'round'; // Essencial para as curvas
+            ctx.lineJoin = 'round'; // Essencial para as curvas
+        }
+
+        /**
+         * O loop principal de predição.
+         * ATUALIZADO V8: Roda a lógica de duas mãos.
+         */
+        async function predictionLoop() {
+            if (!detector || video.paused || video.ended || !isModelReady || !isVideoReady) {
+                loopHandle = requestAnimationFrame(predictionLoop);
+                return;
+            }
+            
+            let hands = []; 
+
+            try {
+                const newHands = await detector.estimateHands(video, {
+                    flipHorizontal: false 
+                });
+                
+                if (newHands) {
+                    hands = newHands; 
+                }
+            } catch (error) {
+                console.error("Erro no estimateHands:", error);
+                hands = []; 
+            }
+            
+            // --- Lógica de Atribuição de Mão V8 ---
+            let drawingHand = null; // Mão direita do usuário (para desenhar E AÇÃO)
+            let menuHand = null;    // Mão esquerda do usuário (para PONTEIRO)
+
+            // Tenta identificar as mãos pela "handedness" (direita/esquerda)
+            // 'Left' do modelo é a mão direita do USUÁRIO (na imagem espelhada).
+            // 'Right' do modelo é a mão esquerda do USUÁRIO (na imagem espelhada).
+            drawingHand = hands.find(h => h.handedness === 'Left');
+            menuHand = hands.find(h => h.handedness === 'Right');  
+
+            // Fallback (se a handedness falhar)
+            if (!drawingHand && !menuHand && hands.length === 2) {
+                // Mão à esquerda do VÍDEO (direita do usuário) é drawingHand
+                if (hands[0].keypoints[0].x < hands[1].keypoints[0].x) { 
+                    drawingHand = hands[0]; 
+                    menuHand = hands[1];    
+                } else {
+                    drawingHand = hands[1]; 
+                    menuHand = hands[0];    
+                }
+            } else if (hands.length === 1) {
+                // Se só uma mão, ela é a mão de desenho
+                drawingHand = hands[0];
+                menuHand = null;
+            }
+            
+            // --- Lógica de Modo de Interação V8 ---
+            const bothHandsDetected = drawingHand && menuHand;
+            const isMenuModeActive = bothHandsDetected; // Menu ativo SE ambas as mãos estiverem visíveis
+
+            if (isMenuModeActive) {
+                // --- MODO MENU (Ambas as mãos visíveis) ---
+                toggleSettingsMenu(true);
+                processPointerHand(menuHand.keypoints); // Mão esquerda move o cursor
+                processActionHand(drawingHand.keypoints); // Mão direita faz a pinça/clique
+                processDrawingHand(null); // Garante que o desenho pare (caneta para cima)
+            } else {
+                // --- MODO DESENHO (Apenas 0 ou 1 mão) ---
+                toggleSettingsMenu(false); // Garante que menu está fechado
+                processDrawingHand(drawingHand ? drawingHand.keypoints : null); // Mão de desenho (única) desenha
+                
+                // Reseta a mão do menu e o cursor
+                processPointerHand(null); // Esconde o cursor
+                processActionHand(null); // Reseta o estado de clique
+            }
+            
+            updateFPS(); // O contador de FPS (visual) deve rodar sempre
+            loopHandle = requestAnimationFrame(predictionLoop);
+        }
+        
+        /**
+         * Simula um clique de mouse na posição (x, y).
+         * (usado pela MÃO DE AÇÃO)
+         */
+        function performClick(x, y) {
+            virtualCursor.style.pointerEvents = 'none'; 
+            const element = currentHoveredElement; // Usa o elemento já identificado pela mão do ponteiro
+
+            if (element) {
+                if (element.tagName === 'INPUT' && element.type === 'range') {
+                    // Para sliders, simula um mousedown para permitir arrasto
+                    const mousedownEvent = new MouseEvent('mousedown', { clientX: x, clientY: y, bubbles: true, cancelable: true });
+                    element.dispatchEvent(mousedownEvent);
+                    isDraggingSlider = true; // Indica que começamos a arrastar um slider
+                    updateSliderValue(element, x); // Atualiza o valor para a posição do clique
+                } else if (element.tagName === 'INPUT' && element.type === 'color') {
+                     // NOVO: Clique na pinça abre o seletor de cor
+                     element.click(); 
+                } else {
+                    // Para outros botões ou elementos clicáveis
+                    element.click(); 
+                }
+            }
+            virtualCursor.style.pointerEvents = 'none'; 
+        }
+        
+        /**
+         * Atualiza a posição do cursor virtual na tela.
+         * (usado pela MÃO DO PONTEIRO)
+         */
+        function updateVirtualCursor(cursor) {
+            virtualCursor.style.left = `${cursor.x}px`;
+            virtualCursor.style.top = `${cursor.y}px`;
+        }
+
+        /**
+         * Limpa o canvas.
+         */
+        function clearCanvas() {
+            // Ação de limpeza só é executada por clique no botão "Limpar"
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        /**
+         * Salva o conteúdo do canvas como um arquivo PNG.
+         */
+        function savePNG() {
+            const dataURL = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = dataURL;
+            link.download = 'desenho-mao-livre-v8.png';
+            link.click();
+        }
+
+        /**
+         * Atualiza o contador de FPS no HUD.
+         */
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            const delta = now - lastFpsTime;
+
+            if (delta >= 1000) {
+                const fps = (frameCount * 1000) / delta;
+                fpsEl.textContent = `FPS: ${Math.round(fps)}`;
+                frameCount = 0;
+                lastFpsTime = now;
+            }
+        }
+        
+        // --- Inicialização e Event Listeners ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.body.style.cursor = 'default'; // Garante cursor visível no início
+            
+            // Verifica dependências (checa se CDNs carregaram)
+            if (typeof tf === 'undefined' || typeof handPoseDetection === 'undefined' || typeof Hands === 'undefined') {
+                showStatus('Erro nas CDNs. Verifique a internet.', 'error');
+                btnStartCam.disabled = true;
+                btnStartCam.textContent = 'Erro ao Carregar';
+                btnStartCam.classList.add('bg-red-600', 'cursor-not-allowed');
+                return;
+            }
+            
+            // Inicia o carregamento do modelo imediatamente
+            initDetector();
+            
+            // Listeners dos controles principais (clique do mouse/dedo)
+            btnStartCam.addEventListener('click', onStartClick);
+
+            // Listeners do menu (clique do mouse/dedo)
+            btnPincel.addEventListener('click', () => setTool('draw'));
+            btnBorracha.addEventListener('click', () => setTool('erase'));
+            
+            lineWidth.addEventListener('input', (e) => {
+                lineWidthLabel.textContent = `${e.target.value} px`;
+            });
+            colorPicker.addEventListener('input', () => {
+                // Atualiza a cor do traço imediatamente
+                if (currentTool === 'draw') { 
+                    ctx.strokeStyle = colorPicker.value;
+                }
+            });
+
+
+            btnClear.addEventListener('click', clearCanvas);
+            btnSave.addEventListener('click', savePNG);
+            btnToggleVideo.addEventListener('click', toggleVideo);
+            btnSwitchCam.addEventListener('click', switchCamera);
+            
+            window.addEventListener('resize', setupCanvas);
+        });
+
+    </script>
+</body>
+</html>
