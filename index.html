@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Desenho com Mão v10 (Balde de Tinta)</title>
+    <!-- ATUALIZADO V12: Título -->
+    <title>Desenho com Mão v12 (Cursor de Desenho)</title>
 
     <!-- 
       Dependências via CDN. 
@@ -79,14 +80,24 @@
             background: #3b82f6; /* bg-blue-500 */
             border: 2px solid white;
             border-radius: 50%;
-            /* Evita que o cursor bloqueie os eventos de clique */
             pointer-events: none; 
-            /* Centraliza o cursor no ponto do dedo */
             transform: translate(-50%, -50%);
-            /* ATUALIZADO: Transição mais rápida para responsividade */
             transition: transform 0.05s ease-out, background-color 0.1s;
-            /* Z-index ALTO para ficar sobre o menu */
             z-index: 1000;
+        }
+
+        /* NOVO V12: Cursor de Desenho (para modo vídeo-off) */
+        #drawCursor {
+            width: 16px;
+            height: 16px;
+            background: #22c55e; /* bg-green-500 */
+            border: 2px solid white;
+            border-radius: 50%;
+            pointer-events: none; 
+            transform: translate(-50%, -50%);
+            /* Sem transição de movimento (left/top) para ser responsivo */
+            transition: transform 0.05s ease-out; 
+            z-index: 1000; /* Mesmo z-index do cursor de menu */
         }
 
         /* NOVO: Garante que o iro.js não quebre o layout do flex */
@@ -98,7 +109,8 @@
 <body class="bg-gray-900 text-gray-100 font-sans">
 
     <!-- Container principal que empilha vídeo e canvas --><main class="relative w-screen h-screen overflow-hidden">
-        <!-- Vídeo: Mostra a câmera (espelhado) --><video id="video" playsinline autoplay muted class="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 transform scale-x-[-1] object-cover transition-opacity duration-300"></video>
+        <!-- ATUALIZADO V12: Removidas transições de opacidade -->
+        <video id="video" playsinline autoplay muted class="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 transform scale-x-[-1] object-cover"></video>
         
         <!-- Canvas: Onde o desenho acontece (não espelhado) --><canvas id="canvas" class="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 transform object-cover"></canvas>
     </main>
@@ -106,89 +118,109 @@
     <!-- Overlay para o menu modal (z-30) --><div id="menu-overlay" class="hidden absolute inset-0 z-30 bg-black bg-opacity-50 backdrop-blur-sm"></div>
 
     <!-- Cursor Virtual (z-1000) --><div id="virtualCursor" class="hidden absolute"></div>
+    
+    <!-- NOVO V12: Cursor de Desenho --><div id="drawCursor" class="hidden absolute"></div>
 
     <!-- Botão flutuante para Iniciar Câmera (z-30) --><button id="btnStartCam" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-blue-600 text-white px-8 py-4 rounded-full shadow-lg text-lg font-semibold hover:bg-blue-700 active:scale-95 transition-all">
         ▶️ Iniciar Câmera
     </button>
 
-    <!-- Botão flutuante para Abrir Configurações (z-30) - Agora é um placeholder, o menu abre com gesto --><!-- Mantido oculto, apenas para fins de debug se precisar --><button id="btnToggleSettings" class="absolute top-4 right-4 z-30 bg-gray-800 bg-opacity-70 backdrop-blur-sm p-3 rounded-full shadow-lg hover:bg-gray-700 active:scale-95 transition-all hidden">
+    <!-- Botão flutuante para Abrir Configurações (z-30) - ... --><button id="btnToggleSettings" class="absolute top-4 right-4 z-30 bg-gray-800 bg-opacity-70 backdrop-blur-sm p-3 rounded-full shadow-lg hover:bg-gray-700 active:scale-95 transition-all hidden">
         <!-- Ícone de Engrenagem (SVG) --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l-.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
     </button>
 
-    <!-- Menu de Configurações (Modal Centralizado) (z-40) --><div id="settings-menu" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 w-[90vw] max-w-md bg-gray-800 bg-opacity-90 backdrop-blur-md shadow-2xl p-6 rounded-2xl flex-col max-h-[90vh] overflow-y-auto">
-        <!-- Cabeçalho do Menu --><div class="flex justify-between items-center mb-6 flex-shrink-0">
+    <!-- Menu de Configurações (Modal Centralizado) (z-40) -->
+    <!-- ATUALIZADO V12: Padding p-6 (revertido) -->
+    <div id="settings-menu" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 w-[90vw] md:max-w-md bg-gray-800 bg-opacity-90 backdrop-blur-md shadow-2xl p-6 rounded-2xl flex flex-col max-h-[90vh] overflow-y-auto">
+        <!-- Cabeçalho do Menu --><div class="flex justify-between items-center mb-4 flex-shrink-0">
             <h2 class="text-xl font-semibold">Ferramentas</h2>
             <!-- Botão de fechar removido, o menu fecha com a mão --></div>
 
-        <!-- Seção de Ferramentas --><div class="mb-6">
-            <h3 class="text-sm font-medium text-gray-400 mb-2">Ferramenta Ativa</h3>
-            <!-- ATUALIZADO: grid-cols-3 para o Balde -->
-            <div class="grid grid-cols-3 gap-3">
-                <button id="btnPincel" class="tool-button bg-blue-600 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-all text-sm">
-                    <!-- Ícone de Pincel --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                    <span class="mt-1">Pincel</span>
-                </button>
-                <button id="btnBorracha" class="tool-button bg-gray-700 text-gray-300 p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-all hover:bg-gray-600 text-sm">
-                    <!-- Ícone de Borracha --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21H7Z"/><path d="M18 11.6 12.4 6"/><path d="m11 13 2.8 2.8"/></svg>
-                    <span class="mt-1">Borracha</span>
-                </button>
-                <!-- NOVO: Botão Preencher -->
-                <button id="btnPreencher" class="tool-button bg-gray-700 text-gray-300 p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-all hover:bg-gray-600 text-sm">
-                    <!-- Ícone de Balde de Tinta -->
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 11 8 8"/><path d="M14 4 3 15"/><path d="M22 12c-2.5 2.5-5 5-5 5s-2-2-2-2"/></svg>
-                    <span class="mt-1">Preencher</span>
-                </button>
-            </div>
-        </div>
+        <!-- NOVO WRAPPER V11: Controla o layout (coluna ou linha com quebra) -->
+        <div class="flex flex-col landscape:flex-row landscape:flex-wrap landscape:justify-center landscape:gap-x-4 landscape:gap-y-2">
 
-        <!-- Seção de Cor e Traço --><div class="mb-6 grid grid-cols-2 gap-4 items-center">
-            <div>
-                <h3 class="text-sm font-medium text-gray-400 mb-2 text-center">Cor</h3>
-                <div class="flex justify-center">
-                    <!-- ATUALIZADO: Trocado input[type=color] por um botão que abre o modal -->
-                    <button id="colorPickerButton" title="Cor do Pincel" class="w-12 h-12 rounded-full border-2 border-gray-700 cursor-pointer transition-transform hover:scale-105 active:scale-95" style="background-color: #000000;"></button>
+            <!-- Seção de Ferramentas -->
+            <!-- ATUALIZADO V12: Removido landscape:w-60 -->
+            <div class="mb-4">
+                <h3 class="text-sm font-medium text-gray-400 mb-2">Ferramenta Ativa</h3>
+                <div class="grid grid-cols-3 gap-3">
+                    <button id="btnPincel" class="tool-button bg-blue-600 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-all text-sm">
+                        <!-- Ícone de Pincel --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                        <span class="mt-1">Pincel</span>
+                    </button>
+                    <button id="btnBorracha" class="tool-button bg-gray-700 text-gray-300 p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-all hover:bg-gray-600 text-sm">
+                        <!-- Ícone de Borracha --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21H7Z"/><path d="M18 11.6 12.4 6"/><path d="m11 13 2.8 2.8"/></svg>
+                        <span class="mt-1">Borracha</span>
+                    </button>
+                    <button id="btnPreencher" class="tool-button bg-gray-700 text-gray-300 p-3 rounded-lg flex flex-col items-center justify-center gap-2 transition-all hover:bg-gray-600 text-sm">
+                        <!-- Ícone de Balde de Tinta --><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 11 8 8"/><path d="M14 4 3 15"/><path d="M22 12c-2.5 2.5-5 5-5 5s-2-2-2-2"/></svg>
+                        <span class="mt-1">Preencher</span>
+                    </button>
                 </div>
             </div>
-            <div class="flex-grow">
-                <h3 class="text-sm font-medium text-gray-400 mb-2">Espessura</h3>
-                <input type="range" id="lineWidth" min="1" max="48" value="8" step="1" title="Espessura do Pincel">
-                <span id="lineWidthLabel" class="text-center block text-sm text-gray-300 mt-2">8 px</span>
-                <!-- NOVO: Preview da Espessura -->
-                <div class="w-full h-12 flex items-center justify-center mt-2 bg-gray-700 rounded-lg p-2">
-                    <div id="lineWidthPreview" class="bg-gray-100 rounded-full" style="width: 80%; height: 8px; transition: height 0.1s ease;"></div>
+
+            <!-- Seção de Cor e Traço -->
+            <!-- ATUALIZADO V12: Removido landscape:w-60 -->
+            <div class="mb-4 grid grid-cols-2 gap-4 items-center">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-400 mb-2 text-center">Cor</h3>
+                    <div class="flex justify-center">
+                        <button id="colorPickerButton" title="Cor do Pincel" class="w-12 h-12 rounded-full border-2 border-gray-700 cursor-pointer transition-transform hover:scale-105 active:scale-95" style="background-color: #000000;"></button>
+                    </div>
+                </div>
+                <div class="flex-grow">
+                    <h3 class="text-sm font-medium text-gray-400 mb-2">Espessura</h3>
+                    <input type="range" id="lineWidth" min="1" max="48" value="8" step="1" title="Espessura do Pincel">
+                    <span id="lineWidthLabel" class="text-center block text-sm text-gray-300 mt-2">8 px</span>
+                    <div class="w-full h-12 flex items-center justify-center mt-2 bg-gray-700 rounded-lg p-2">
+                        <div id="lineWidthPreview" class="bg-gray-100 rounded-full" style="width: 80%; height: 8px; transition: height 0.1s ease;"></div>
+                    </div>
                 </div>
             </div>
-        </div>
-        
-        <!-- Checkbox "Desenhar com Pinça" --><div class="mb-6">
-             <label class="flex items-center gap-3 p-3 bg-gray-700 rounded-lg">
-                 <input type="checkbox" id="chkPinchDraw" class="w-5 h-5 rounded text-blue-500 bg-gray-600 border-gray-500 focus:ring-blue-600" checked>
-                 <span class="text-sm">Desenhar apenas com Pinça</span>
-             </label>
-        </div>
+            
+            <!-- Checkbox "Desenhar com Pinça" -->
+            <!-- ATUALIZADO V12: Removido landscape:w-60 -->
+            <div class="mb-4">
+                 <label class="flex items-center gap-3 p-3 bg-gray-700 rounded-lg">
+                     <input type="checkbox" id="chkPinchDraw" class="w-5 h-5 rounded text-blue-500 bg-gray-600 border-gray-500 focus:ring-blue-600" checked>
+                     <span class="text-sm">Desenhar apenas com Pinça</span>
+                 </label>
+            </div>
 
-        <!-- Seção de Ações --><div class="mb-6 grid grid-cols-2 gap-4">
-            <button id="btnClear" class="bg-red-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-red-700 active:scale-95 transition-all">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                Limpar
-            </button>
-            <button id="btnSave" class="bg-green-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 active:scale-95 transition-all">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Salvar
-            </button>
-        </div>
-        
-        <!-- Seção de Controles da Câmera --><div class="border-t border-gray-700 pt-6 grid grid-cols-2 gap-4">
-             <button id="btnToggleVideo" class="bg-gray-700 text-gray-300 p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-600 active:scale-95 transition-all">
-                 <svg id="iconVideoOn" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.934a.5.5 0 0 0-.777-.416L16 11Z"/><rect x="2" y="7" width="14" height="10" rx="2" ry="2"/></svg>
-                 <svg id="iconVideoOff" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M16 13.01V7.934a.5.5 0 0 0-.777-.416L10.5 10.5H2v4h8.5l4.723 3.066a.5.5 0 0 0 .777-.416Z"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
-                 Vídeo
-             </button>
-             <button id="btnSwitchCam" class="bg-gray-700 text-gray-300 p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-600 active:scale-95 transition-all">
-                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M21 22v-6h-6"/><path d="M21 13a9 9 0 0 0-9-9 9 9 0 0 0-9 9"/><path d="M3 11a9 9 0 0 0 9 9 9 9 0 0 0 9-9"/></svg>
-                 Alternar
-             </button>
-        </div>
+            <!-- Seção de Ações -->
+            <!-- ATUALIZADO V12: Removido landscape:w-60 -->
+            <div class="mb-4 grid grid-cols-2 gap-4">
+                <button id="btnClear" class="bg-red-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-red-700 active:scale-95 transition-all">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    Limpar
+                </button>
+                <button id="btnSave" class="bg-green-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 active:scale-95 transition-all">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Salvar
+                </button>
+            </div>
+            
+            <!-- Seção de Controles da Câmera -->
+            <!-- ATUALIZADO V13: grid-cols-3 -->
+            <div class="border-t border-gray-700 pt-4 mt-4 grid grid-cols-3 gap-3 landscape:border-t-0 landscape:pt-0 landscape:mt-0">
+                 <button id="btnToggleVideo" class="bg-gray-700 text-gray-300 p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-600 active:scale-95 transition-all">
+                     <svg id="iconVideoOn" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.934a.5.5 0 0 0-.777-.416L16 11Z"/><rect x="2" y="7" width="14" height="10" rx="2" ry="2"/></svg>
+                     <svg id="iconVideoOff" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M16 13.01V7.934a.5.5 0 0 0-.777-.416L10.5 10.5H2v4h8.5l4.723 3.066a.5.5 0 0 0 .777-.416Z"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+                     Vídeo
+                 </button>
+                 <button id="btnSwitchCam" class="bg-gray-700 text-gray-300 p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-600 active:scale-95 transition-all">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M21 22v-6h-6"/><path d="M21 13a9 9 0 0 0-9-9 9 9 0 0 0-9 9"/><path d="M3 11a9 9 0 0 0 9 9 9 9 0 0 0 9-9"/></svg>
+                     Alternar
+                 </button>
+                 <!-- NOVO V13: Botão HUD -->
+                 <button id="btnToggleHud" class="bg-gray-700 text-gray-300 p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-600 active:scale-95 transition-all" title="Ocultar/Mostrar HUD">
+                     <svg id="iconHudOn" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                     <svg id="iconHudOff" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+                     HUD
+                 </button>
+            </div>
+
+        </div> <!-- Fim do Wrapper V11 -->
     </div>
 
     <!-- ATUALIZADO: Modal Seletor de Cor (z-50) agora usa iro.js --><div id="color-picker-modal" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[90vw] max-w-xs bg-gray-800 shadow-2xl p-6 rounded-2xl flex-col">
@@ -225,7 +257,9 @@
         const statusEl = document.getElementById('status');
         const fpsEl = document.getElementById('fps');
         const virtualCursor = document.getElementById('virtualCursor');
+        const drawCursor = document.getElementById('drawCursor'); // NOVO V12
         const menuOverlay = document.getElementById('menu-overlay');
+        const statusHud = document.querySelector('.status-hud'); // NOVO V13
         
         // Controles Principais
         const btnStartCam = document.getElementById('btnStartCam');
@@ -248,6 +282,9 @@
         const btnSwitchCam = document.getElementById('btnSwitchCam');
         const iconVideoOn = document.getElementById('iconVideoOn');
         const iconVideoOff = document.getElementById('iconVideoOff');
+        const btnToggleHud = document.getElementById('btnToggleHud'); // NOVO V13
+        const iconHudOn = document.getElementById('iconHudOn'); // NOVO V13
+        const iconHudOff = document.getElementById('iconHudOff'); // NOVO V13
 
         // NOVO: Referências do Modal de Cor (z-50)
         const colorPickerButton = document.getElementById('colorPickerButton');
@@ -285,6 +322,7 @@
         let currentHoveredElement = null; // Elemento sob o cursor
         let isDraggingSlider = false; // Se o slider está sendo arrastado
         let elementBeingDragged = null; // NOVO: Qual elemento está sendo arrastado
+        let lastDrawCursorScreenPos = null; // NOVO V13
         
         // NOVO: Estado do Modal de Cor
         let currentColorHSL = { h: 0, s: 0, l: 0 }; // Cor principal (Preto)
@@ -299,6 +337,7 @@
         // Fatores de suavização
         const SMOOTH_FACTOR = 0.8; // Fator de suavização para o desenho
         const MENU_SMOOTH_FACTOR = 0.85; // Fator de suavização para o cursor do menu
+        const DRAW_CURSOR_SMOOTH_FACTOR = 0.9; // NOVO V13: Suavização extra para o cursor de desenho
 
         // Estado do FPS
         let frameCount = 0;
@@ -307,6 +346,7 @@
         // Estado de Inicialização
         let isModelReady = false;
         let isVideoReady = false;
+        let isHudVisible = true; // NOVO V13
 
         // --- Funções de UI ---
 
@@ -424,6 +464,16 @@
             if (!isSettingsMenuOpen) {
                  menuOverlay.classList.add('hidden');
             }
+        }
+
+        /**
+         * NOVO V13: Alterna a visibilidade do HUD (Status/FPS).
+         */
+        function toggleHud() {
+            isHudVisible = !isHudVisible;
+            statusHud.classList.toggle('hidden', !isHudVisible);
+            iconHudOn.classList.toggle('hidden', !isHudVisible);
+            iconHudOff.classList.toggle('hidden', isHudVisible);
         }
 
 
@@ -561,8 +611,14 @@
             isDraggingSlider = false;
             elementBeingDragged = null;
             currentHoveredElement = null;
+            drawCursor.classList.add('hidden'); // NOVO V12
+            lastDrawCursorScreenPos = null; // NOVO V13
             
-            document.querySelector('.status-hud').classList.remove('hidden');
+            // NOVO V13: Reseta o HUD
+            isHudVisible = true; 
+            statusHud.classList.remove('hidden'); 
+            iconHudOn.classList.remove('hidden'); 
+            iconHudOff.classList.add('hidden'); 
 
             frameCount = 0;
             lastFpsTime = performance.now();
@@ -578,7 +634,10 @@
                 loopHandle = null;
             }
             virtualCursor.classList.add('hidden');
+            drawCursor.classList.add('hidden'); // NOVO V12
+            lastDrawCursorScreenPos = null; // NOVO V13
             document.body.style.cursor = 'default'; // Mostra o cursor
+            statusHud.classList.add('hidden'); // NOVO V13: Esconde HUD ao parar
             showStatus('Câmera parada', 'info');
             toggleSettingsMenu(false); // Garante que o menu feche
             closeColorPicker(false); // Garante que o modal de cor feche
@@ -587,9 +646,12 @@
         // --- Funções de Processamento de Gestos ---
         
         /**
-         * ATUALIZADO V10: Processa a mão primária (desenho, preenchimento).
+         * ATUALIZADO V12: Processa a mão primária (desenho, preenchimento, cursor).
          */
         function processDrawingHand(keypoints) {
+            // Pega o estado do vídeo ANTES de qualquer coisa
+            const isVideoHidden = video.style.opacity === '0';
+
             if (!keypoints) {
                  if (isDrawing) { // Se estava desenhando, limpa o estado
                      isDrawing = false;
@@ -597,6 +659,8 @@
                      isDrawingPinchingState = false;
                      ctx.closePath(); // Fecha qualquer path de curva aberto
                  }
+                 drawCursor.classList.add('hidden'); // NOVO V12: Esconde cursor se não houver mão
+                 lastDrawCursorScreenPos = null; // NOVO V13: Reseta o smoother
                  return;
             }
             
@@ -608,8 +672,6 @@
             } else if (!isDrawingPinchingState && pinchDist < PINCH_START_THRESHOLD) {
                 isDrawingPinchingState = true;
             }
-
-            // const shouldDraw = !chkPinchDraw.checked || isDrawingPinchingState; // Lógica antiga
             
             // ATUALIZADO V11: Lógica de Desenho (Padrão ou Invertida)
             let shouldDraw;
@@ -621,7 +683,32 @@
                 shouldDraw = !isDrawingPinchingState;
             }
 
-            const cursor = getSmoothedCursor(keypoints[8]); // Usa o keypoint 8 (indexTip) para o cursor
+            // ATUALIZADO V13: Lógica do Cursor de Desenho (agora com suavização própria)
+            if (isVideoHidden) {
+                // 1. Pega a coordenada de TELA (não-suavizada)
+                const rawScreenPos = getVideoToScreenCoords(keypoints[8]);
+
+                // 2. Aplica suavização de TELA
+                if (!lastDrawCursorScreenPos) {
+                    lastDrawCursorScreenPos = rawScreenPos;
+                }
+                const smoothedScreenX = DRAW_CURSOR_SMOOTH_FACTOR * rawScreenPos.x + (1 - DRAW_CURSOR_SMOOTH_FACTOR) * lastDrawCursorScreenPos.x;
+                const smoothedScreenY = DRAW_CURSOR_SMOOTH_FACTOR * rawScreenPos.y + (1 - DRAW_CURSOR_SMOOTH_FACTOR) * lastDrawCursorScreenPos.y;
+                lastDrawCursorScreenPos = { x: smoothedScreenX, y: smoothedScreenY };
+
+                // 3. Mostra o cursor
+                drawCursor.classList.remove('hidden');
+                drawCursor.style.left = `${smoothedScreenX}px`;
+                drawCursor.style.top = `${smoothedScreenY}px`;
+            } else {
+                drawCursor.classList.add('hidden');
+                lastDrawCursorScreenPos = null; // Reseta o smoother
+            }
+
+
+            // Lógica de desenho (CANVAS) (usa sua própria suavização, FATOR 0.8)
+            const cursor = getSmoothedCursor(keypoints[8]); // Coordenadas do CANVAS
+
 
             // Define o estilo ANTES de desenhar (para Pincel/Borracha)
             if (currentTool === 'draw') {
@@ -638,7 +725,6 @@
                 // Lógica do Balde de Tinta (só no clique)
                 if (isDrawingPinchingState && !isDrawing) { // 'isDrawing' é usado como flag "já cliquei?"
                     isDrawing = true; // Seta a flag para não preencher de novo no mesmo gesto
-                    // Usa a cor RGBA armazenada
                     floodFill(Math.round(cursor.x), Math.round(cursor.y), currentColorRgba);
                 } else if (!isDrawingPinchingState) {
                     isDrawing = false; // Reseta a flag quando soltar a pinça
@@ -773,7 +859,7 @@
                 const event = new MouseEvent('mousemove', { clientX: currentMenuCursorPos.x, clientY: currentMenuCursorPos.y, bubbles: true, cancelable: true });
                 window.dispatchEvent(event);
 
-                // 2. Se o item arrastado for um slider, atualiza seu valor manualmente
+                // 2. Se o item arrastado for um slider, atualiza seu valor manually
                 if (elementBeingDragged && elementBeingDragged.tagName === 'INPUT' && elementBeingDragged.type === 'range') {
                     updateSliderValue(elementBeingDragged, currentMenuCursorPos.x);
                 }
@@ -900,6 +986,8 @@
             video.style.opacity = isHidden ? '1' : '0';
             iconVideoOn.classList.toggle('hidden', !isHidden);
             iconVideoOff.classList.toggle('hidden', isHidden);
+            // ATUALIZADO V12: Não precisa mais de lógica aqui,
+            // processDrawingHand() cuida do cursor.
         }
 
         /**
@@ -1047,7 +1135,6 @@
         function savePNG() {
             const dataURL = canvas.toDataURL('image/png');
             const link = document.createElement('a');
-            link.href = dataURL;
             link.download = 'desenho-mao-livre-v10.png';
             link.click();
         }
@@ -1110,6 +1197,11 @@
          * Algoritmo de Flood Fill (Baseado em Fila, 4-direções)
          */
         function floodFill(startX, startY, fillColorRgba) {
+            // Assegura que as coordenadas estão dentro dos limites
+            if (startX < 0 || startX >= canvas.width || startY < 0 || startY >= canvas.height) {
+                return;
+            }
+
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
             
@@ -1198,6 +1290,7 @@
             btnSave.addEventListener('click', savePNG);
             btnToggleVideo.addEventListener('click', toggleVideo);
             btnSwitchCam.addEventListener('click', switchCamera);
+            btnToggleHud.addEventListener('click', toggleHud); // NOVO V13
             
             window.addEventListener('resize', setupCanvas);
         });
