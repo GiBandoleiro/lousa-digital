@@ -1281,9 +1281,20 @@
 
         /**
          * Limpa o canvas.
+         * ATUALIZADO V19: Reconfigura o contexto após limpar.
          */
         function clearCanvas() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // RECONFIGURA O ESTADO DO CONTEXTO por segurança.
+            // Se o 'clearRect' resetar estados (como lineCap),
+            // isso garante que o próximo desenho funcione corretamente
+            // e previne travamentos no loop de renderização.
+            ctx.strokeStyle = `hsl(${currentColorHSL.h}, ${currentColorHSL.s}%, ${currentColorHSL.l}%)`;
+            ctx.lineWidth = lineWidth.value;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.globalCompositeOperation = 'source-over';
         }
 
         /**
@@ -1455,6 +1466,7 @@
     </script>
 </body>
 </html>
+
 
 
 
