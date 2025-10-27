@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- ATUALIZADO V14: Título -->
     <title>Desenho com Mão v14 (Glassmorphism)</title>
-
+<!-- Favicon (Ícone da Aba) -->
+    <link rel="icon" type="image/png" href="logoLousa.png">
     <!-- 
       Dependências via CDN. 
       Este app não funcionará offline, pois precisa carregar estes scripts.
@@ -372,10 +373,10 @@
         const PINCH_STOP_THRESHOLD = 0.28;  // Pinça aberta
         
         // Fatores de suavização
-        // ATUALIZADO V18: Mais suave (valor menor = mais suave, mais lag)
-        const SMOOTH_FACTOR = 0.5; // V15: 0.6
-        const MENU_SMOOTH_FACTOR = 0.6; // V15: 0.7
-        const DRAW_CURSOR_SMOOTH_FACTOR = 0.65; // V15: 0.75
+        // ATUALIZADO V25: AINDA mais suave (valor menor = mais suave, mais lag)
+        const SMOOTH_FACTOR = 0.4; // V18: 0.5
+        const MENU_SMOOTH_FACTOR = 0.6; // Inalterado
+        const DRAW_CURSOR_SMOOTH_FACTOR = 0.5; // V18: 0.65
 
         // Estado do FPS
         let frameCount = 0;
@@ -730,6 +731,32 @@
         // --- Funções de Processamento de Gestos ---
         
         /**
+         * ATUALIZADO V23: Renomeado de 'isThumbUpGesture' para 'isFistGesture'.
+         * Verifica o gesto de "Mão Fechada / Soco".
+         * Compara a ponta dos dedos (8, 12, 16, 20) com os "nós" (juntas) da mão (5, 9, 13, 17).
+         * Esta lógica é mais robusta do que comparar com as juntas do meio (6, 10, 14, 18).
+         */
+        function isFistGesture(landmarks) {
+            try {
+                // Em um "soco", a ponta do dedo (Y) é MAIOR (mais para baixo) do que o "nó" (knuckle).
+                // Em uma mão "apontando", a ponta do indicador (8) é MENOR (mais para cima) do que o "nó" (5).
+
+                const indexClosed = landmarks[8].y > landmarks[5].y;
+                const middleClosed = landmarks[12].y > landmarks[9].y;
+                const ringClosed = landmarks[16].y > landmarks[13].y;
+                const pinkyClosed = landmarks[20].y > landmarks[17].y;
+
+                // Se todos os 4 dedos estiverem fechados, é um "soco".
+                // Não precisamos checar o polegar, o que permite mais flexibilidade.
+                return indexClosed && middleClosed && ringClosed && pinkyClosed;
+
+            } catch (e) {
+                // Se houver erro ou landmark faltando, assume que não é o gesto
+                return false; 
+            }
+        }
+
+        /**
          * Processa a mão primária (desenho, preenchimento, cursor).
          */
         function processDrawingHand(keypoints) {
@@ -763,8 +790,11 @@
                 // Modo Padrão: Desenha com pinça FECHADA
                 shouldDraw = isDrawingPinchingState;
             } else {
-                // Modo Invertido: Desenha com pinça ABERTA (polegar "levantado")
-                shouldDraw = !isDrawingPinchingState;
+                // ATUALIZADO V23: MODO "MÃO ABERTA/APONTANDO"
+                // Usa a nova detecção de "soco" (isFistGesture).
+                // Desenha A MENOS que a mão esteja fechada (fist).
+                const isHandClosed = isFistGesture(keypoints);
+                shouldDraw = !isHandClosed;
             }
 
             // Lógica do Cursor de Desenho (agora com suavização própria)
@@ -1233,12 +1263,24 @@
         
         /**
          * Simula um clique de mouse na posição (x, y).
+         * ATUALIZADO V24: Corrige o erro 'element.click is not a function'
          */
         function performClick(x, y) {
             virtualCursor.style.pointerEvents = 'none'; 
-            const element = currentHoveredElement; 
+            const hoveredElement = currentHoveredElement; 
 
-            if (element) {
+            // O 'hoveredElement' pode ser um <svg> ou <span> dentro de um botão.
+            // Precisamos encontrar o ancestral clicável (botão, input, etc.)
+            
+            if (!hoveredElement) {
+                virtualCursor.style.pointerEvents = 'none';
+                return; // Clicou no vazio
+            }
+
+            // Encontra o elemento interativo mais próximo
+            const element = hoveredElement.closest('button, input, label, #menu-overlay, #iro-color-picker-wrapper');
+
+            if (element) { // 'element' agora é o <button> ou <input>, etc.
                 // Se o modal de cor estiver aberto, ele tem prioridade
                 if (isColorPickerOpen) {
                     if (element.id === 'menu-overlay') { 
@@ -1257,16 +1299,21 @@
                 } else if (element.id === 'colorPickerButton') {
                     openColorPicker();
                 
-                } else if (element.closest('#iro-color-picker-wrapper')) { 
+                // Lógica do iro-wrapper ajustada
+                } else if (element.id === 'iro-color-picker-wrapper') { 
                     const mousedownEvent = new MouseEvent('mousedown', { clientX: x, clientY: y, bubbles: true, cancelable: true });
-                    element.dispatchEvent(mousedownEvent);
+                    // Dispara o evento no 'hoveredElement' original (o ponto exato do clique)
+                    // para que o iro.js saiba onde o clique começou.
+                    hoveredElement.dispatchEvent(mousedownEvent); 
                     isDraggingSlider = true; 
-                    elementBeingDragged = element; 
-
-                } else {
+                    elementBeingDragged = element; // Marca que estamos arrastando o wrapper
+                
+                } else if (element.tagName === 'BUTTON' || (element.tagName === 'INPUT' && element.type !== 'range') || element.tagName === 'LABEL') {
+                    // Bloco 'else' mais seguro
                     // Para outros botões (Apply, Cancel, Pincel, Borracha, Preencher, etc)
                     element.click(); 
                 }
+                // Se não for nenhum desses (ex: um clique no fundo do menu), não faz nada e evita o erro.
             }
             virtualCursor.style.pointerEvents = 'none'; 
         }
@@ -1466,6 +1513,12 @@
     </script>
 </body>
 </html>
+
+
+
+
+
+
 
 
 
