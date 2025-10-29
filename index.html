@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- ATUALIZADO V14: Título -->
-    <title>Desenho com Mão v14 (Glassmorphism)</title>
+    <title>Lousa Digital</title>
 <!-- Favicon (Ícone da Aba) -->
     <link rel="icon" type="image/png" href="logoLousa.png">
     <!-- 
@@ -126,8 +126,10 @@
 
     <!-- ATUALIZADO V14: Tela de Início (Lobby) -->
     <div id="startScreen" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 w-[90vw] max-w-lg bg-black/30 backdrop-blur-md border border-white/10 shadow-2xl p-8 rounded-2xl text-center flex flex-col items-center">
-        <h1 class="text-3xl font-bold text-white mb-2">Desenho com Mão <span class="text-sky-400">v14</span></h1>
-        <p class="text-slate-200 mb-6">Use suas mãos para desenhar. Uma experiência com IA.</p>
+        <h1 class="text-3xl font-bold text-white mb-2">Lousa<span class="text-sky-400"> Digital</span></h1>
+        <p class="text-slate-200 mb-6">Use suas mãos para desenhar.</p>
+	<p class="text-slate-200 mb-6">Clique e desenhe com o gesto pinça.</p>
+	<p class="text-slate-200 mb-6">(Dedo polegar e indicador juntos)</p>
 
         <!-- Seção "Como usar" -->
         <div class="flex flex-col sm:flex-row gap-4 mb-8 text-left w-full">
@@ -221,8 +223,13 @@
             </div>
 
             <!-- Seção de Ações -->
-            <!-- ATUALIZADO V16: p-2, gap-1 -->
-            <div class="mb-2 grid grid-cols-2 gap-4">
+            <!-- ATUALIZADO V26: Adicionado botão "Voltar". grid-cols-3 e gap-3 -->
+            <div class="mb-2 grid grid-cols-3 gap-3">
+                <button id="btnUndo" class="bg-amber-600 text-white p-2 rounded-lg flex items-center justify-center gap-1 hover:bg-amber-700 active:scale-95 transition-all disabled:bg-slate-600 disabled:text-slate-400 disabled:cursor-not-allowed" title="Desfazer" disabled>
+                    <!-- Ícone Desfazer (Voltar) -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>
+                    Voltar
+                </button>
                 <button id="btnClear" class="bg-red-600 text-white p-2 rounded-lg flex items-center justify-center gap-1 hover:bg-red-700 active:scale-95 transition-all">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                     Limpar
@@ -312,6 +319,7 @@
         const chkPinchDraw = document.getElementById('chkPinchDraw');
         const btnClear = document.getElementById('btnClear');
         const btnSave = document.getElementById('btnSave');
+        const btnUndo = document.getElementById('btnUndo'); // NOVO V26
         const btnToggleVideo = document.getElementById('btnToggleVideo');
         const btnSwitchCam = document.getElementById('btnSwitchCam');
         const iconVideoOn = document.getElementById('iconVideoOn');
@@ -386,6 +394,10 @@
         let isModelReady = false;
         let isVideoReady = false;
         let isHudVisible = true; 
+
+        // NOVO V26: Pilha para Desfazer
+        let undoStack = [];
+        const UNDO_STACK_LIMIT = 20; // Limite de 20 ações
 
         // --- Funções de UI ---
 
@@ -838,6 +850,7 @@
             if (currentTool === 'fill') {
                 // Lógica do Balde de Tinta (só no clique)
                 if (isDrawingPinchingState && !isDrawing) { // 'isDrawing' é usado como flag "já cliquei?"
+                    saveUndoState(); // NOVO V26
                     isDrawing = true; // Seta a flag para não preencher de novo no mesmo gesto
                     floodFill(Math.round(cursor.x), Math.round(cursor.y), currentColorRgba);
                 } else if (!isDrawingPinchingState) {
@@ -848,6 +861,7 @@
                 if (shouldDraw) {
                     if (!isDrawing) {
                         // Início de uma nova linha
+                        saveUndoState(); // NOVO V26
                         isDrawing = true;
                         lastDrawnPoint = cursor;
                         ctx.beginPath();
@@ -1122,6 +1136,10 @@
             ctx.lineWidth = lineWidth.value;
             ctx.lineCap = 'round'; // Essencial para as curvas
             ctx.lineJoin = 'round'; // Essencial para as curvas
+
+            // NOVO V26: Limpa a pilha de desfazer e desativa o botão
+            undoStack = [];
+            if(btnUndo) btnUndo.disabled = true;
         }
 
         /**
@@ -1164,7 +1182,7 @@
                 menuHand = hands.find(h => h.handedness === 'Right');   // Mão Esquerda do usuário
             } else {
                 drawingHand = hands.find(h => h.handedness === 'Right'); // Mão Direita do usuário
-                menuHand = hands.find(h => h.handedness === 'Left');    // Mão Esquerda do usuário
+                menuHand = hands.find(h => h.handedness === 'Left');   // Mão Esquerda do usuário
             }
 
             // Fallback se "handedness" falhar (usa posição X)
@@ -1329,8 +1347,10 @@
         /**
          * Limpa o canvas.
          * ATUALIZADO V19: Reconfigura o contexto após limpar.
+         * ATUALIZADO V26: Salva o estado antes de limpar.
          */
         function clearCanvas() {
+            saveUndoState(); // NOVO V26: Salva o estado ANTES de limpar
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // RECONFIGURA O ESTADO DO CONTEXTO por segurança.
@@ -1372,6 +1392,31 @@
             }
         }
         
+        /**
+         * Salva o estado atual do canvas na pilha de "Desfazer".
+         * NOVO V26
+         */
+        function saveUndoState() {
+            if (undoStack.length >= UNDO_STACK_LIMIT) {
+                undoStack.shift(); // Remove o estado mais antigo para manter o limite
+            }
+            undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+            btnUndo.disabled = false; // Ativa o botão de desfazer
+        }
+
+        /**
+         * Desfaz a última ação, restaurando o estado anterior do canvas.
+         * NOVO V26
+         */
+        function undoLastAction() {
+            if (undoStack.length > 0) {
+                const lastState = undoStack.pop();
+                ctx.putImageData(lastState, 0, 0);
+            }
+            // Desativa o botão se a pilha estiver vazia
+            btnUndo.disabled = undoStack.length === 0;
+        }
+
         // --- Funções do Balde de Tinta (Flood Fill) ---
 
         /**
@@ -1503,6 +1548,7 @@
             
             btnClear.addEventListener('click', clearCanvas);
             btnSave.addEventListener('click', savePNG);
+            btnUndo.addEventListener('click', undoLastAction); // NOVO V26
             btnToggleVideo.addEventListener('click', toggleVideo);
             btnSwitchCam.addEventListener('click', switchCamera);
             btnToggleHud.addEventListener('click', toggleHud); 
@@ -1513,14 +1559,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
