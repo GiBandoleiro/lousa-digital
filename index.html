@@ -110,6 +110,46 @@
             margin: 0 auto; /* Centraliza o seletor */
         }
     </style>
+<script>
+  (function () {
+    // Bloqueia F11/F12 e atalhos comuns de DevTools/inspeção
+    window.addEventListener('keydown', function (e) {
+      const k = (e.key || '').toUpperCase();
+
+      const bloquear =
+        k === 'F11' || k === 'F12' ||
+        (e.ctrlKey && e.shiftKey && ['I', 'J', 'C', 'K'].includes(k)) || // Ctrl+Shift+I/J/C/K
+        (e.ctrlKey && ['U', 'S', 'P'].includes(k)); // Ctrl+U (view-source), Ctrl+S, Ctrl+P
+
+      if (bloquear) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    }, true);
+
+    // Bloqueia menu de contexto (botão direito)
+    window.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+    }, true);
+
+    // Bloqueia clique do meio e direito (sem afetar o esquerdo)
+    window.addEventListener('mousedown', function (e) {
+      if (e.button === 1 || e.button === 2) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    }, true);
+
+    // Também bloqueia eventos "auxclick" (alguns browsers)
+    window.addEventListener('auxclick', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }, true);
+  })();
+</script>
 </head>
 <!-- ATUALIZADO V14: Paleta de cores base -->
 <body class="bg-slate-900 text-slate-100 font-sans">
